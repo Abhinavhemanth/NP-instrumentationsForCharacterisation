@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Instrument Viewer</title>
+<style>
+:root{--bg:#0c1319;--panel:#131d26;--line:#243442;--ink:#e6edf3;--dim:#8da2b3;--acc:#3fd0c9;--warm:#f2b84b}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column}
+header{padding:10px 16px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+h1{font:600 18px/1.2 Georgia,serif;letter-spacing:.2px}
+.chips{display:flex;gap:6px;overflow-x:auto}
+.chip{border:1px solid var(--line);background:none;color:var(--dim);padding:5px 12px;border-radius:99px;font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}
+.chip.on{background:var(--acc);color:#04201f;border-color:var(--acc);font-weight:600}
+.chip:hover{color:var(--ink);border-color:var(--acc)}.home{color:var(--acc);text-decoration:none;font-size:13px;white-space:nowrap}.home:hover{text-decoration:underline}
+nav{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+nav button{background:none;border:0;border-bottom:3px solid transparent;color:var(--dim);padding:10px 14px;font:inherit;cursor:pointer}
+nav button:hover{color:var(--ink)}
+nav button.on{color:var(--ink);border-bottom-color:var(--acc)}
+nav button:focus-visible,.chip:focus-visible,.pl button:focus-visible{outline:2px solid var(--warm);outline-offset:-2px}
+main{flex:1;display:flex;min-height:0}
+#wrap{flex:1;position:relative;min-width:0}
+#wrap canvas{display:block;width:100%;height:100%}
+.lb{position:absolute;pointer-events:none;transform:translate(-50%,-50%);background:rgba(10,18,24,.85);border:1px solid var(--acc);color:var(--ink);font-size:12px;padding:2px 8px;border-radius:4px;white-space:nowrap;opacity:0;transition:opacity .3s}
+aside{width:310px;border-left:1px solid var(--line);background:var(--panel);padding:16px;overflow-y:auto}
+aside h2{font:600 16px Georgia,serif;margin-bottom:6px}
+aside p{color:var(--dim);font-size:14px;margin-bottom:10px}
+.pl{list-style:none;padding:0;margin:10px 0}
+.pl button{width:100%;text-align:left;background:none;border:1px solid transparent;border-radius:6px;color:var(--ink);padding:7px 10px;font:inherit;font-size:14px;cursor:pointer}
+.pl button:hover{border-color:var(--line)}
+.pl button.on{background:#0d3a3f;border-color:var(--acc)}
+.card{border:1px solid var(--line);border-radius:8px;padding:12px;background:#0f1820;margin-top:8px}
+.card b{color:var(--warm)}
+.btn{background:var(--acc);color:#04201f;border:0;border-radius:6px;padding:7px 14px;font:600 14px inherit;cursor:pointer}
+.steps{padding-left:20px;color:var(--dim);font-size:14px}
+.steps li{padding:4px 0}
+.steps li.on{color:var(--ink);font-weight:600}
+input[type=range]{width:100%;accent-color:var(--acc)}
+@media(max-width:820px){main{flex-direction:column}aside{width:100%;height:42%;border-left:0;border-top:1px solid var(--line)}h1{font-size:16px}}
+@media(prefers-reduced-motion:reduce){.lb{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <a class="home" href="index.html">&larr; Overview</a>
+  <h1>Instrument Viewer</h1>
+  <div class="chips" id="chips" role="group" aria-label="Choose instrument"></div>
+</header>
+<nav id="tabs" role="tablist">
+  <button data-t="real" class="on">Instrument</button>
+  <button data-t="expl">Exploded view</button>
+  <button data-t="anim">How it works</button>
+  <button data-t="parts">Parts list</button>
+</nav>
+<main>
+  <div id="wrap"></div>
+  <aside id="side"></aside>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+/* ---------- scene ---------- */
+const wrap=document.getElementById('wrap');
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+wrap.appendChild(renderer.domElement);
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x0c1319);
+scene.fog=new THREE.Fog(0x0c1319,22,48);
+const camera=new THREE.PerspectiveCamera(40,1,.1,100);
+camera.position.set(10,6.5,12);
+const ctl=new THREE.OrbitControls(camera,renderer.domElement);
+ctl.enableDamping=true;ctl.target.set(.5,3.4,0);ctl.autoRotateSpeed=.8;ctl.maxPolarAngle=Math.PI*.52;ctl.minDistance=3;ctl.maxDistance=26;
+
+scene.add(new THREE.HemisphereLight(0xcfe8ff,0x1a2530,.85));
+const sun=new THREE.DirectionalLight(0xffffff,1.1);
+sun.position.set(7,12,8);sun.castShadow=true;
+Object.assign(sun.shadow.camera,{left:-12,right:12,top:12,bottom:-12});sun.shadow.mapSize.set(2048,2048);
+scene.add(sun);
+const rim=new THREE.DirectionalLight(0x7fd8ff,.5);rim.position.set(-8,5,-6);scene.add(rim);
+const floor=new THREE.Mesh(new THREE.CircleGeometry(16,64),new THREE.MeshStandardMaterial({color:0x101a23,roughness:.9}));
+floor.rotation.x=-Math.PI/2;floor.position.y=-.01;floor.receiveShadow=true;scene.add(floor);
+const grid=new THREE.GridHelper(32,32,0x1d2d3a,0x16232d);grid.position.y=0;scene.add(grid);
+
+/* ---------- helpers ---------- */
+let inst=null;
+const M=(c,m=.35,r=.4)=>new THREE.MeshStandardMaterial({color:c,metalness:m,roughness:r,transparent:true});
+const mesh=(geo,c,x=0,y=0,z=0,m,r)=>{const o=new THREE.Mesh(geo,M(c,m,r));o.position.set(x,y,z);o.castShadow=o.receiveShadow=true;return o};
+const cyl=(rt,rb,h,c,x,y,z,m,r)=>mesh(new THREE.CylinderGeometry(rt,rb,h,48),c,x,y,z,m,r);
+const box=(w,h,d,c,x,y,z,m,r)=>mesh(new THREE.BoxGeometry(w,h,d),c,x,y,z,m,r);
+const tor=(R,t,c,x,y,z,m,r)=>{const o=mesh(new THREE.TorusGeometry(R,t,16,48),c,x,y,z,m,r);o.rotation.x=Math.PI/2;return o};
+const SILVER=0xcdd3da,DARK=0x27323f,TEAL=0x1fb5a8,COPPER=0xb87333;
+
+let P=[];
+function part(id,name,func,spec,ex,cut,build){
+  const g=new THREE.Group();build(g);inst.add(g);
+  g.traverse(o=>{if(o.isMesh)o.userData.pid=id});
+  const mats=new Set();g.traverse(o=>o.material&&mats.add(o.material));
+  P.push({id,name,func,spec,ex:new THREE.Vector3(...ex),cut,g,mats:[...mats],n:P.length+1});
+}
+const add=(g,...o)=>o.forEach(x=>g.add(x));
+
+/* ---------- monitor image (fake SEM micrograph of nanoparticles) ---------- */
+const img=document.createElement('canvas');img.width=256;img.height=192;
+const scrC=document.createElement('canvas');scrC.width=256;scrC.height=192;
+(function(){const c=img.getContext('2d');let s=7;const R=()=>(s=(s*16807)%2147483647)/2147483647;
+  c.fillStyle='#4a4a4a';c.fillRect(0,0,256,192);
+  for(let i=0;i<70;i++){const x=R()*256,y=R()*192,r=6+R()*14;const gr=c.createRadialGradient(x-r*.3,y-r*.3,1,x,y,r);
+    gr.addColorStop(0,'#fff');gr.addColorStop(.7,'#9a9a9a');gr.addColorStop(1,'#333');c.fillStyle=gr;c.beginPath();c.arc(x,y,r,0,7);c.fill()}
+  const d=c.getImageData(0,0,256,192);for(let i=0;i<d.data.length;i+=4){const n=(R()-.5)*34;d.data[i]+=n;d.data[i+1]+=n;d.data[i+2]+=n}
+  c.putImageData(d,0,0)})();
+const tex=new THREE.CanvasTexture(scrC);
+function drawScreen(rows){const c=scrC.getContext('2d');c.fillStyle='#050808';c.fillRect(0,0,256,192);
+  if(rows>0)c.drawImage(img,0,0,256,rows,0,0,256,rows);
+  if(rows<192){c.fillStyle='#7fffe9';c.fillRect(0,rows,256,1)}
+  c.fillStyle='#fff';c.font='9px sans-serif';c.fillText('10 kV   x20,000   SE',6,186);tex.needsUpdate=true}
+drawScreen(192);
+
+function buildSEM(){
+
+part('base','Instrument table / cabinet','Vibration-damped bench that carries the column and holds electronics and cables.','Acoustic and floor-vibration isolation is essential for nm-scale imaging.',[0,-1,0],false,g=>{
+  add(g,box(9,.5,4.2,DARK,1.5,.25,0,.2,.6),box(9.1,.06,4.3,0xcfd6de,1.5,.53,0,.1,.3));
+  [-2.7,5.7].forEach(x=>[-1.7,1.7].forEach(z=>add(g,cyl(.12,.12,.3,0x111,x,-.1,z))));
+});
+part('vac','Vacuum system (turbo + rotary pump)','Removes air so electrons are not scattered by gas molecules; keeps the gun clean.','Column about 10⁻⁴ to 10⁻⁶ Pa (up to 10⁻⁸ Pa for field-emission guns).',[-2.4,.2,-1.9],false,g=>{
+  add(g,cyl(.55,.55,1.2,0x7e8a96,-2.4,1.15,0,.6,.3),cyl(.42,.42,.12,0x2b6cb0,-2.4,1.8,0),cyl(.15,.15,1.4,SILVER,-1.8,1.5,0,.7,.3));
+  g.children[2].rotation.z=Math.PI/2;
+});
+part('chamber','Specimen chamber','Vacuum vessel around the sample stage with ports for detectors.','Stainless steel or aluminium; typical internal width 150–300 mm.',[0,-.5,0],true,g=>{
+  add(g,cyl(1.1,1.1,1.6,SILVER,0,1.4,0,.7,.25),cyl(1.2,1.2,.1,0x9aa5b1,0,2.25,0,.8,.3),cyl(1.2,1.2,.1,0x9aa5b1,0,.6,0,.8,.3));
+  const w=cyl(.22,.22,.1,0x0a1a22,1.12,1.5,0);w.rotation.z=Math.PI/2;g.add(w);
+});
+part('door','Chamber door','Hinged door for loading samples; carries a viewing window and vent control.','Opens only after the chamber is vented with dry nitrogen.',[0,0,2.8],true,g=>{
+  const d=box(1.5,1.3,.12,0xe4e8ec,0,1.4,1.17,.5,.3);const h=cyl(.05,.05,.5,0x333,.55,1.4,1.3);
+  add(g,d,h);
+});
+part('stage','Sample stage & specimen','Holds the sample and moves it in X, Y, Z, tilt and rotation.','Motorised 5-axis stage; samples mounted on carbon tape on aluminium stubs.',[-2.8,.3,1.3],false,g=>{
+  add(g,cyl(.6,.6,.12,0x8a95a1,0,1.45,0,.7,.3),cyl(.15,.15,.9,0x6f7a86,0,1.0,0,.7,.3),cyl(.25,.25,.08,0xb6bcc4,0,1.55,0,.8,.3),box(.2,.12,.2,0x222a33,0,1.63,0,.1,.7));
+});
+part('bse','Backscattered-electron (BSE) detector','Ring detector under the lens that collects high-energy backscattered electrons.','Contrast depends on atomic number Z: heavier elements look brighter.',[2,.5,-2.2],false,g=>{
+  add(g,tor(.38,.12,0xc0392b,0,2.1,0,.4,.4));
+});
+part('se','Secondary-electron (SE) detector','Everhart–Thornley detector: a positively biased grid pulls in low-energy secondary electrons.','Scintillator and photomultiplier convert electrons to a signal; images show topography.',[2.6,.3,0],false,g=>{
+  const r=cyl(.1,.1,1.2,0xe0a030,.9,1.95,0,.6,.3);r.rotation.z=Math.PI/2;
+  const f=cyl(.28,.28,.12,0xb08020,1.2,1.95,0,.6,.3);f.rotation.z=Math.PI/2;
+  add(g,r,f,mesh(new THREE.SphereGeometry(.15,24,16),0xffe08a,.3,1.95,0,.2,.3));
+});
+part('obj','Objective lens','Final lens: focuses the beam to a nanometre-sized spot on the sample.','Electromagnetic coil in an iron pole piece; focus is set by the lens current.',[0,.8,0],true,g=>{
+  add(g,cyl(.9,.9,.9,0x3a4756,0,2.8,0,.6,.35),cyl(.93,.93,.12,TEAL,0,2.8,0,.4,.3),cyl(.15,.5,.45,0x9aa5b1,0,2.25,0,.8,.3),cyl(.3,.3,.9,0x7e8a96,0,3.3,0,.8,.3));
+});
+part('coils','Scan coils','Two pairs of deflection coils steer the beam in a raster across the sample.','Scan speed sets image time; magnification = display width ÷ scanned width.',[0,1.8,0],true,g=>{
+  add(g,tor(.62,.16,COPPER,0,3.75,0,.7,.35),tor(.62,.16,COPPER,0,3.98,0,.7,.35),cyl(.3,.3,.9,0x7e8a96,0,3.85,0,.8,.3));
+});
+part('apt','Objective aperture','Thin metal disc with a tiny hole that trims the beam and sets depth of field.','Hole diameter about 20–200 µm; smaller means sharper but dimmer image.',[0,2.6,0],true,g=>{
+  add(g,cyl(.55,.55,.3,0x6b7683,0,4.55,0,.8,.3),cyl(.3,.3,.7,0x7e8a96,0,4.6,0,.8,.3),cyl(.1,.1,.02,0x000,0,4.71,0));
+});
+part('cond','Condenser lens','Demagnifies the beam from the gun and controls spot size and probe current.','A stronger lens gives a smaller spot, better resolution and less current.',[0,3.7,0],true,g=>{
+  add(g,cyl(.85,.85,.9,0x3a4756,0,5.5,0,.6,.35),cyl(.88,.88,.12,TEAL,0,5.5,0,.4,.3),cyl(.3,.3,1.1,0x7e8a96,0,5.4,0,.8,.3));
+});
+part('gun','Electron gun','Emits and accelerates electrons: heated tungsten or LaB6 filament, or a field-emission tip.','Accelerating voltage typically 0.5–30 kV.',[0,5.2,0],true,g=>{
+  add(g,cyl(.55,.55,.9,0x2d3a4a,0,6.45,0,.5,.4),cyl(.55,.55,.1,TEAL,0,6.3,0,.4,.3),cyl(.3,.55,.3,0x394a5c,0,7.05,0,.5,.4),
+      mesh(new THREE.SphereGeometry(.3,24,16),0x394a5c,0,7.2,0,.5,.4),cyl(.3,.3,.6,0x7e8a96,0,6.7,0,.8,.3));
+  const hv=cyl(.09,.09,1.4,0x151515,.7,7.6,0,.1,.7);hv.rotation.z=Math.PI/2.6;g.add(hv);
+});
+part('mon','Control monitor & electronics','Shows the live image; the PC sets voltage, focus, magnification and scan speed.','Image is built pixel by pixel as the beam scans, synchronised with detector signal.',[2,.5,1],false,g=>{
+  const s=new THREE.Group();s.position.x=3.9;s.rotation.y=-.45;
+  s.add(cyl(.18,.18,.5,0x222,0,.8,0),box(1.2,.08,.8,0x222,0,.58,0),box(2.3,1.6,.12,0x15191e,0,1.85,0,.2,.5));
+  const scr=new THREE.Mesh(new THREE.PlaneGeometry(2.05,1.38),new THREE.MeshBasicMaterial({map:tex,transparent:true}));scr.position.set(0,1.85,.07);s.add(scr);
+  g.add(s);
+});
+
+/* ---------- beam + signals (live in inst coords, never explode) ---------- */
+const BM=()=>new THREE.MeshBasicMaterial({color:0x66d9ff,transparent:true,opacity:.9});
+const beamA=new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,1,8),BM()),beamB=new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,1,8),BM());
+const glow=new THREE.Mesh(new THREE.SphereGeometry(.12,16,12),new THREE.MeshBasicMaterial({color:0xaef3ff,transparent:true,opacity:.9}));
+const FX=new THREE.Group();FX.add(beamA,beamB,glow);inst.add(FX);FX.visible=false;
+function pts(n,col,size){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  const o=new THREE.Points(g,new THREE.PointsMaterial({color:col,size,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));o.frustumCulled=false;FX.add(o);return o}
+const NE=48,eDots=pts(NE,0x9be8ff,.14),NS=40,seDots=pts(NS,0xffd24a,.11),bseDots=pts(NS,0xff6a5a,.11);
+const sig=Array.from({length:NS},()=>({u:Math.random(),z:(Math.random()-.5)*.6}));
+const G=new THREE.Vector3(0,6.85,0),B=new THREE.Vector3(0,3.85,0),C=new THREE.Vector3(),UP=new THREE.Vector3(0,1,0);
+function seg(m,a,b){const d=b.clone().sub(a);m.position.copy(a).addScaledVector(d,.5);m.scale.set(1,d.length(),1);m.quaternion.setFromUnitVectors(UP,d.normalize())}
+const SEH=new THREE.Vector3(.3,1.95,0);
+function runFX(t){
+  C.set((((t*6)%1)*2-1)*.3,1.69,(((t*.4)%1)*2-1)*.3);
+  seg(beamA,G,B);seg(beamB,B,C);glow.position.copy(C);glow.scale.setScalar(.8+.3*Math.sin(t*20));
+  const L1=3,L2=B.distanceTo(C),L=L1+L2,p=eDots.geometry.attributes.position;
+  for(let i=0;i<NE;i++){const d=((i/NE+t*.6)%1)*L;let x,y,z;
+    if(d<L1){x=0;y=6.85-d;z=0}else{const f=(d-L1)/L2;x=C.x*f;y=B.y+(C.y-B.y)*f;z=C.z*f}p.setXYZ(i,x,y,z)}
+  p.needsUpdate=true;
+  [[seDots,0],[bseDots,1]].forEach(([o,k])=>{const q=o.geometry.attributes.position;
+    for(let i=0;i<NS;i++){const s=sig[i];const u=(s.u+t*.8+k*.3)%1;
+      const tx=k?0:SEH.x,ty=k?2.1:SEH.y,tz=k?s.z:0;
+      q.setXYZ(i,C.x+(tx-C.x)*u+(k?0:0),C.y+(ty-C.y)*u+Math.sin(u*Math.PI)*.35,C.z+(tz-C.z)*u)}q.needsUpdate=true});
+  drawScreen(Math.floor(((t*.4)%1)*192));
+}
+
+return {FX,run:runFX,steps:SEMSTEPS,show:()=>drawScreen(192)};
+}
+
+/* =====================================================================
+   Shared helpers for all instruments
+   ===================================================================== */
+const V3=(x,y,z)=>new THREE.Vector3(x,y,z),UPV=V3(0,1,0),rad=Math.PI/180;
+const gs=(u,c,w,h)=>h*Math.exp(-(((u-c)/w)**2));
+function benchTop(g,w,cx){add(g,box(w,.5,4.6,DARK,cx,.25,0,.2,.6),box(w+.1,.06,4.7,0xcfd6de,cx,.53,0,.1,.3))}
+function trayPart(g){benchTop(g,11.6,.8);add(g,box(7.4,.25,4.9,0x39434f,0,.68,0,.3,.5))}
+function coverPart(g){add(g,box(7.2,1.3,4.8,0xe8ebee,0,1.5,0,.2,.4),box(1.4,.25,.02,0x0b3b40,2.2,1.55,2.41,.2,.5))}
+function glass(m,o){m.material.opacity=o;m.material.userData.op=o;m.castShadow=false;return m}
+function bm(c,r=.03,o=.9){return new THREE.Mesh(new THREE.CylinderGeometry(r,r,1,8),new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:o,depthWrite:false}))}
+function sg(m,a,b){const d=b.clone().sub(a);m.position.copy(a).addScaledVector(d,.5);m.scale.set(1,Math.max(d.length(),.001),1);m.quaternion.setFromUnitVectors(UPV,d.normalize())}
+function aim(m,a,b){m.quaternion.setFromUnitVectors(UPV,b.clone().sub(a).normalize())}
+function dotsMk(FX,n,col,size){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  const o=new THREE.Points(g,new THREE.PointsMaterial({color:col,size,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));o.frustumCulled=false;FX.add(o);return o}
+function along(o,pts,t,sp){const q=o.geometry.attributes.position,n=q.count,L=[0];
+  for(let i=1;i<pts.length;i++)L.push(L[i-1]+pts[i].distanceTo(pts[i-1]));const T=L[L.length-1];
+  for(let k=0;k<n;k++){const d=((k/n+t*sp)%1)*T;let i=1;while(i<pts.length-1&&d>L[i])i++;
+    const f=(d-L[i-1])/((L[i]-L[i-1])||1),a=pts[i-1],b=pts[i];q.setXYZ(k,a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,a.z+(b.z-a.z)*f)}
+  q.needsUpdate=true}
+function mkScr(fn){const c=document.createElement('canvas');c.width=256;c.height=192;const x=c.getContext('2d'),t=new THREE.CanvasTexture(c);
+  return {tex:t,set(p){x.fillStyle='#04090c';x.fillRect(0,0,256,192);fn(x,p);t.needsUpdate=true}}}
+function plot(x,f,p,col,xl,yl){x.strokeStyle='#2a3a4a';x.lineWidth=1;x.strokeRect(24,10,222,152);x.fillStyle='#9ab';x.font='9px sans-serif';
+  x.fillText(xl,100,182);x.save();x.translate(11,120);x.rotate(-Math.PI/2);x.fillText(yl,0,0);x.restore();
+  x.strokeStyle=col;x.lineWidth=1.6;x.beginPath();for(let i=0;i<=200*p;i++){const u=i/200,px=26+u*218,py=160-Math.max(0,Math.min(1,f(u)))*146;i?x.lineTo(px,py):x.moveTo(px,py)}x.stroke()}
+function monitor(g,x,tex,ry,oy){const s=new THREE.Group();s.position.set(x,oy||0,0);s.rotation.y=ry;
+  s.add(cyl(.18,.18,.5,0x222,0,.8,0),box(1.2,.08,.8,0x222,0,.58,0),box(2.3,1.6,.12,0x15191e,0,1.85,0,.2,.5));
+  const sc=new THREE.Mesh(new THREE.PlaneGeometry(2.05,1.38),new THREE.MeshBasicMaterial({map:tex,transparent:true}));sc.position.set(0,1.85,.07);s.add(sc);g.add(s)}
+const newFX=()=>{const f=new THREE.Group();inst.add(f);return f};
+const MON_INFO='Computer that controls the instrument, collects the signal and plots the result.';
+
+/* ---------- screens ---------- */
+const afmH=(u,v)=>Math.max(0,Math.min(1,.12+gs(u,.25,.12,.6)*gs(v,.3,.15,1)+gs(u,.7,.1,.8)*gs(v,.65,.12,1)+gs(u,.45,.08,.7)*gs(v,.85,.1,1)+gs(u,.85,.09,.6)*gs(v,.2,.1,1)+.03*Math.sin(u*60)*Math.sin(v*50)));
+const afmS=mkScr((x,p)=>{const rows=Math.floor(p*48);for(let j=0;j<rows;j++)for(let i=0;i<64;i++){const h=afmH(i/64,j/48);x.fillStyle='hsl('+(20+h*45)+',90%,'+(15+h*58)+'%)';x.fillRect(i*4,j*4,4,4)}
+  x.fillStyle='#fff';x.font='9px sans-serif';x.fillText('Topography 2 × 2 µm',6,186)});
+const temS=mkScr((x,p)=>{x.globalAlpha=.2+.8*p;const cx=128,cy=96,gr=x.createRadialGradient(cx,cy,0,cx,cy,18);gr.addColorStop(0,'#fff');gr.addColorStop(1,'rgba(120,255,160,0)');x.fillStyle=gr;x.fillRect(cx-18,cy-18,36,36);
+  for(let j=-3;j<=3;j++)for(let i=-3;i<=3;i++){if(!i&&!j)continue;const px=cx+i*30+j*15,py=cy+j*26,d=Math.hypot(px-cx,py-cy);if(d>95)continue;
+    x.fillStyle='rgba(150,255,180,'+(.95-d/130)+')';x.beginPath();x.arc(px,py,3.2,0,7);x.fill()}
+  x.strokeStyle='rgba(120,255,160,.25)';x.beginPath();x.arc(cx,cy,60,0,7);x.stroke();x.globalAlpha=1;x.fillStyle='#9ab';x.font='9px sans-serif';x.fillText('Electron diffraction · 200 kV',6,186)});
+const xrdF=u=>.05+gs(u,.18,.012,.45)+gs(u,.31,.012,.8)+gs(u,.46,.013,.42)+gs(u,.62,.015,.33)+gs(u,.76,.015,.25)+.012*Math.sin(u*400);
+const xrdS=mkScr((x,p)=>plot(x,xrdF,p,'#ffb347','2θ (degrees)','Intensity (a.u.)'));
+const ftirF=u=>.92-gs(u,.12,.07,.45)-gs(u,.46,.012,.5)-gs(u,.55,.02,.55)-gs(u,.7,.012,.35)-gs(u,.86,.02,.3)+.01*Math.sin(u*300);
+const ftirS=mkScr((x,p)=>plot(x,ftirF,p,'#ff7a5c','Wavenumber (4000 → 400 cm⁻¹)','Transmittance'));
+const uvF=u=>.1+gs(u,.53,.07,.72)+gs(u,.07,.1,.4)+.05*Math.sin(u*3);
+const uvS=mkScr((x,p)=>{plot(x,uvF,p,'#7be0a6','Wavelength (nm)','Absorbance');x.fillStyle='#fff';x.font='10px sans-serif';x.fillText('λ = '+Math.round(200+600*p)+' nm',170,26)});
+
+/* =====================================================================
+   AFM
+   ===================================================================== */
+function buildAFM(){
+  const A={};
+  part('base','Anti-vibration bench','Heavy damped table. The AFM senses sub-nanometre motion, so floor vibration and noise must be blocked.','Often an active isolation table plus an acoustic hood.',[0,-1,0],false,g=>benchTop(g,9,0));
+  part('piezo','Piezo scanner (XYZ)','Piezoelectric tube that moves the sample in X and Y for the raster scan and in Z for the feedback.','Positioning resolution below 0.1 nm; scan range about 1–100 µm.',[0,-.2,2.4],false,g=>{
+    add(g,cyl(.7,.7,.2,0x6f7a86,0,.66,0,.7,.3),cyl(.45,.45,.5,0x2f7f96,0,.95,0,.4,.4),cyl(.5,.5,.05,0xdddddd,0,1.2,0,.7,.3))});
+  part('sample','Sample on stub','The nanoparticle sample is dried on a flat substrate (mica or silicon) fixed to a magnetic puck.','Roughness must stay within the scanner Z-range (typically a few µm).',[-2.6,1.2,1.4],false,g=>{
+    A.samp=new THREE.Group();g.add(A.samp);add(A.samp,cyl(.5,.5,.1,0x9aa5b1,0,1.26,0,.8,.3),box(.8,.2,.8,0x2c3540,0,1.41,0,.2,.5));
+    for(let i=0;i<9;i++)add(A.samp,mesh(new THREE.SphereGeometry(.05+.012*(i%3),12,10),0xd9a441,-.25+(i%3)*.25,1.52,-.25+Math.floor(i/3)*.25,.9,.25))});
+  part('head','Scan head frame','Rigid frame that holds the laser, cantilever holder and photodetector in fixed positions.','Stiff, thermally stable aluminium or Invar.',[0,1.4,-2],false,g=>{
+    add(g,box(.5,3.9,.5,0x59636f,0,2.5,-1.3,.5,.4),box(5.2,.3,1.8,0x59636f,0,4.45,-.5,.5,.4),cyl(.1,.1,2.4,0x888,-.75,3.2,-.45,.7,.3),box(.3,.12,.5,0x888,-.7,2.0,-.22,.6,.4),cyl(.08,.08,.8,0x888,-1.7,3.95,0,.7,.3),cyl(.08,.08,.8,0x888,1.9,3.95,0,.7,.3))});
+  part('cant','Cantilever & tip','A sharp tip (radius ~5–10 nm) on a micro-fabricated silicon or Si₃N₄ cantilever. It bends as forces act between tip and surface.','Length ~100–450 µm, spring constant 0.1–50 N/m (drawn enlarged here).',[-.6,1.6,2.4],false,g=>{
+    add(g,box(.4,.14,.3,0x555555,-.7,1.97,0,.3,.5));A.cant=new THREE.Group();A.cant.position.set(-.55,1.9,0);g.add(A.cant);
+    add(A.cant,box(.9,.03,.2,0xbfc8d0,.45,0,0,.9,.2),cyl(.05,0,.3,0xf5f5f5,.85,-.17,0,.8,.2))});
+  part('laser','Laser diode','A laser focused on the back of the cantilever works as an optical lever that magnifies tiny motions.','Red diode laser, about 650 nm, below 1 mW.',[-2.6,.9,1.6],false,g=>{
+    const d=V3(2,-1.5,0).normalize(),L=cyl(.16,.16,.8,0x222222,-1.7,3.4,0,.5,.4);aim(L,V3(0,0,0),d);g.add(L);
+    g.add(mesh(new THREE.SphereGeometry(.09,12,10),0xff3322,-1.7+d.x*.42,3.4+d.y*.42,0))});
+  part('pd','Four-quadrant photodetector','Splits the reflected laser spot into four quadrants. Spot motion tells how much the cantilever bends or twists.','Vertical difference signal = deflection; horizontal = torsion (friction).',[2.6,.9,1.6],false,g=>{
+    const q=new THREE.Group();q.position.set(1.9,3.4,0);q.quaternion.setFromUnitVectors(V3(0,0,1),V3(1.6,1.5,0).normalize().negate());g.add(q);
+    add(q,box(.55,.55,.06,0x222a33,0,0,0,.3,.5));[[1,1],[1,-1],[-1,1],[-1,-1]].forEach(a=>add(q,box(.2,.2,.03,0x3a6df0,a[0]*.13,a[1]*.13,.04,.6,.3)))});
+  part('ctrl','Controller & display','Feedback electronics keep the deflection constant and plot the Z corrections as a 3D height map.',MON_INFO,[2.6,.5,1.6],false,g=>{
+    add(g,box(1.4,.5,1.0,0x3a4450,3.3,.8,1.5,.3,.5));monitor(g,3.2,afmS.tex,-.45,0)});
+  const FX=newFX(),b1=bm(0xff2a2a,.025),b2=bm(0xff2a2a,.025),spot=new THREE.Mesh(new THREE.SphereGeometry(.07,12,10),new THREE.MeshBasicMaterial({color:0xff6a6a})),dt=dotsMk(FX,18,0xff8a8a,.1);
+  FX.add(b1,b2,spot);const Lp=V3(-1.7+.8*.45,3.4-.6*.45,0),Cp=V3(.28,1.9,0);
+  function run(t){const p=(t*.1)%1,sx=Math.sin(t*12)*.25,sz=(p*2-1)*.25;A.samp.position.set(sx,0,sz);
+    const h=afmH(.5+sx*2,.5+sz*2);A.cant.rotation.z=(h-.4)*.14;const S=V3(1.9,3.4+(h-.4)*1.2,0);
+    sg(b1,Lp,Cp);sg(b2,Cp,S);spot.position.copy(S);along(dt,[Lp,Cp,S],t,.8);afmS.set(p)}
+  return {FX,run,show:()=>afmS.set(1),steps:[
+    ['laser','Laser','A laser beam is focused on the back of the cantilever.'],
+    ['cant','Tip and cantilever','The sharp tip touches or taps the surface; surface forces bend the cantilever up and down.'],
+    ['piezo','Piezo scanner','The scanner moves the sample line by line (raster) with sub-nanometre precision.'],
+    ['pd','Photodetector','The reflected laser spot moves on the four-quadrant photodiode as the cantilever bends.'],
+    ['ctrl','Feedback and image','The controller keeps the deflection constant by adjusting Z; those corrections are drawn as a height map.']]}
+}
+
+/* =====================================================================
+   TEM
+   ===================================================================== */
+function buildTEM(){
+  part('base','Plinth & console desk','Vibration-damped platform for the column plus a desk for the operator console.','Needs a room with very low magnetic fields, vibration and temperature drift.',[0,-1,0],false,g=>add(g,box(3.4,.5,3.4,DARK,0,.25,0,.2,.6),box(2.8,.8,2.0,DARK,4.2,.4,0,.2,.6)));
+  part('cam','CCD / CMOS camera','Digital camera under the screen records images and diffraction patterns.','Often 4k × 4k pixels; fast cameras record movies.',[2.6,-.1,1.8],false,g=>add(g,box(1.1,.5,1.1,0x2d3a4a,0,.75,0,.4,.5),box(1.12,.08,1.12,TEAL,0,.75,0,.4,.3)));
+  part('chamber','Viewing chamber & screen','Fluorescent screen that glows green where electrons hit it, seen through a lead-glass window.','ZnS-type phosphor; lead glass blocks stray X-rays.',[0,-.1,-2.4],true,g=>{
+    add(g,cyl(.85,.85,1.0,SILVER,0,1.5,0,.7,.25),box(.5,.35,.1,0x0a3a30,0,1.5,.86,.3,.3),cyl(.7,.7,.04,0x2e8a4a,0,1.6,0,.3,.5))});
+  part('proj','Intermediate & projector lenses','Magnify the first image formed by the objective lens up to about a million times.','Switching the lens current switches between image mode and diffraction mode.',[0,.9,0],true,g=>{
+    add(g,cyl(.28,.28,1.9,0x7e8a96,0,3.0,0,.8,.3));[2.9,3.6].forEach(y=>add(g,cyl(.85,.85,.5,0x3a4756,0,y,0,.6,.35),cyl(.88,.88,.08,TEAL,0,y,0,.4,.3)))});
+  part('obj','Objective lens','Heart of the TEM: forms the first magnified image of the sample and the diffraction pattern.','Strong lens with a very short focal length; sets the resolution (down to ~0.1 nm).',[0,1.5,-2.2],true,g=>{
+    add(g,cyl(1,1,1.2,0x3a4756,0,4.7,0,.6,.35),cyl(1.03,1.03,.1,TEAL,0,4.7,0,.4,.3),cyl(.28,.28,.4,0x7e8a96,0,4.0,0,.8,.3))});
+  part('holder','Specimen holder (side-entry)','Thin rod that carries a 3 mm grid with the sample into the objective lens through an airlock.','Sample must be thinner than about 100 nm; tilt holders help 3D work.',[3.2,.8,0],false,g=>{
+    const r=cyl(.12,.12,4,0xb8c0c8,2,4.7,0,.9,.25);r.rotation.z=Math.PI/2;const h=cyl(.28,.28,.9,0x2b2b2b,3.9,4.7,0);h.rotation.z=Math.PI/2;
+    add(g,r,h,box(.8,.8,.8,0x6f7a86,1.3,4.7,0,.6,.3),cyl(.18,.18,.02,0xd9a441,0,4.7,0,.9,.2))});
+  part('cond','Condenser lenses & aperture','Shape the beam into a small, parallel (or focused) illumination on the sample.','C1 sets spot size; C2 sets how widely the sample is illuminated.',[0,2.8,0],true,g=>{
+    add(g,cyl(.28,.28,1.8,0x7e8a96,0,6.0,0,.8,.3));[5.9,6.5].forEach(y=>add(g,cyl(.8,.8,.5,0x3a4756,0,y,0,.6,.35),cyl(.83,.83,.08,TEAL,0,y,0,.4,.3)))});
+  part('gun','Electron gun & HV tank','Emits electrons (LaB₆ or field-emission tip) and accelerates them to 80–300 kV.','Higher voltage gives shorter wavelength and better resolution.',[0,4.4,0],true,g=>{
+    add(g,cyl(.65,.65,1.0,0x2d3a4a,0,7.4,0,.5,.4),cyl(.67,.67,.1,TEAL,0,7.1,0,.4,.3),mesh(new THREE.SphereGeometry(.5,24,16),0x394a5c,0,7.9,0,.5,.4));
+    const c=cyl(.1,.1,1.8,0x151515,.9,8.2,0,.1,.7);c.rotation.z=Math.PI/3;g.add(c)});
+  part('vac','Ion pump (high vacuum)','Pumps the column to ultra-high vacuum so electrons travel without scattering.','Column pressure ~10⁻⁵ to 10⁻⁸ Pa.',[-2.8,.3,0],false,g=>{
+    const p=cyl(.14,.14,1.2,SILVER,-1.3,1.5,0,.7,.3);p.rotation.z=Math.PI/2;add(g,cyl(.45,.45,1.2,0x7e8a96,-2.0,1.4,0,.6,.3),cyl(.3,.3,.15,0x2b6cb0,-2.0,2.05,0),p)});
+  part('mon','Console & display','Operator monitor shows the live image or diffraction pattern.',MON_INFO,[2.4,.8,1.8],false,g=>monitor(g,4.2,temS.tex,-.35,.24));
+  const FX=newFX();
+  const cone=(rt,rb,y1,y2,o)=>{const m=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,y1-y2,24,1,true),new THREE.MeshBasicMaterial({color:0x66d9ff,transparent:true,opacity:o,depthWrite:false,side:THREE.DoubleSide}));m.position.y=(y1+y2)/2;FX.add(m)};
+  cone(.03,.03,7,5.5,.7);cone(.03,.22,5.5,4.8,.25);cone(.22,.22,4.8,4.6,.3);cone(.22,.03,4.6,4,.25);cone(.03,.7,4,1.6,.18);
+  const glow=new THREE.Mesh(new THREE.CircleGeometry(.7,32),new THREE.MeshBasicMaterial({color:0x66ff88,transparent:true,opacity:.3,depthWrite:false}));glow.rotation.x=-Math.PI/2;glow.position.y=1.63;FX.add(glow);
+  const spots=[V3(0,1.65,0)];for(let k=0;k<6;k++)spots.push(V3(Math.cos(k*Math.PI/3)*.38,1.65,Math.sin(k*Math.PI/3)*.38));
+  const sm=spots.map((s,i)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(i?.045:.08,10,8),new THREE.MeshBasicMaterial({color:0xcfffd8}));m.position.copy(s);FX.add(m);return m});
+  const N=70,dt=dotsMk(FX,N,0x9be8ff,.12),ph=[],fr=[];for(let i=0;i<N;i++){ph.push(Math.random()*6.28);fr.push(Math.sqrt(Math.random()))}
+  const rAt=y=>y>5.5?.03:y>4.8?.03+(5.5-y)/.7*.19:y>4.6?.22:y>4?.22-(4.6-y)/.6*.19:.03+(4-y)/2.4*.67;
+  function run(t){const q=dt.geometry.attributes.position;
+    for(let i=0;i<N;i++){const y=7-((i/N+t*.5)%1)*5.4,r=rAt(y)*fr[i];q.setXYZ(i,Math.cos(ph[i])*r,y,Math.sin(ph[i])*r)}q.needsUpdate=true;
+    glow.material.opacity=.3+.12*Math.sin(t*4);sm.forEach((m,i)=>m.scale.setScalar(1+.25*Math.sin(t*5+i)));temS.set((t*.2)%1)}
+  return {FX,run,show:()=>temS.set(1),steps:[
+    ['gun','Electron gun','A hot or field-emission tip emits electrons that are accelerated to 80–300 kV.'],
+    ['cond','Condenser lenses','Magnetic lenses form a narrow, nearly parallel beam on the sample.'],
+    ['holder','Specimen holder','An ultra-thin sample (under 100 nm) is placed in the beam; electrons pass through it and are scattered by atoms.'],
+    ['obj','Objective lens','Forms the first magnified image and the diffraction pattern of the sample.'],
+    ['proj','Intermediate & projector lenses','Magnify the image further, up to about a million times.'],
+    ['chamber','Screen and camera','Electrons hit the fluorescent screen or camera and form the final image or diffraction pattern.']]}
+}
+
+/* =====================================================================
+   XRD
+   ===================================================================== */
+function buildXRD(){
+  const A={},R=1.7,Y=1.75,th0=.3,piv=(g,r)=>{const p=new THREE.Group();p.position.y=Y;p.rotation.z=r;g.add(p);return p};
+  part('base','Bench','Sturdy bench for the diffractometer, generator and computer.','',[0,-1,0],false,g=>benchTop(g,12,0));
+  part('gen','X-ray generator & chiller','High-voltage supply for the tube; a water chiller carries away the heat.','Typical settings 40 kV and 30–40 mA.',[-2.8,.5,1.2],false,g=>{
+    add(g,box(1.6,1.6,1.4,0x3d4a58,-4.6,1.36,.4,.3,.5),box(.6,.3,.02,0xf2c200,-4.6,1.7,1.12),cyl(.08,.08,1.8,0x111111,-3.6,1.2,.4,.1,.7));g.children[2].rotation.z=Math.PI/2});
+  part('cabinet','Radiation shield cabinet','Lead-lined enclosure with a lead-glass window and door interlock; X-rays cannot escape while it is closed.','The interlock switches the beam off when the door opens.',[0,3.8,0],true,g=>{
+    add(g,box(5.6,3.2,.08,0xe3e7eb,0,2.16,-1.66,.2,.4),box(.08,3.2,3.4,0xe3e7eb,-2.76,2.16,0,.2,.4),box(.08,3.2,3.4,0xe3e7eb,2.76,2.16,0,.2,.4),box(5.6,.08,3.4,0xe3e7eb,0,3.72,0,.2,.4),
+      box(5.6,.15,.1,0xf2c200,0,.64,1.71,.2,.4),box(5.6,.12,.1,0xe3e7eb,0,3.68,1.71,.2,.4));
+    g.add(glass(box(5.4,2.95,.04,0x9fd3c0,0,2.16,1.7,.1,.1),.22))});
+  part('gonio','Goniometer','Precision rotary stage that moves the tube and detector in step to scan the angle θ.','Angular accuracy about 0.001°.',[0,1.6,-1.8],false,g=>{
+    const arc=new THREE.Mesh(new THREE.TorusGeometry(R,.04,12,96,Math.PI),M(0xb8c0c8,.9,.25));arc.position.y=Y;g.add(arc);add(g,cyl(.6,.9,1.1,0x59636f,0,1.1,0,.5,.4))});
+  part('sample','Sample holder (powder)','Flat holder with a thin layer of nanoparticle powder, level with the rotation axis.','About 100–500 mg of finely ground powder.',[0,1.6,2.4],false,g=>add(g,cyl(.45,.45,.1,0x888888,0,1.7,0,.6,.3),cyl(.36,.36,.02,0xe8e0cc,0,1.76,0,0,.9)));
+  part('tube','X-ray tube (Cu Kα)','Electrons hit a copper target and produce X-rays of wavelength 0.154 nm.','Cu Kα λ = 0.15406 nm; other targets: Co, Mo.',[-2.6,.8,0],false,g=>{
+    A.pT=piv(g,-th0);const h=cyl(.3,.3,1.0,0x4a5560,-(R+.35),0,0,.5,.4);h.rotation.z=Math.PI/2;const c=cyl(.2,.2,.1,0xd9a45b,-(R-.2),0,0,.8,.3);c.rotation.z=Math.PI/2;add(A.pT,h,c)});
+  part('optics','Slits & monochromator','Divergence and receiving slits narrow the beam; a Ni filter or monochromator removes unwanted Kβ lines.','Slit width sets angular resolution and intensity.',[0,2.4,2],false,g=>{
+    A.pO1=piv(g,-th0);add(A.pO1,box(.08,.5,.6,0x222,-1.1,0,0,.3,.5));A.pO2=piv(g,th0);add(A.pO2,box(.08,.5,.6,0x222,1.1,0,0,.3,.5),box(.3,.45,.45,0x8a6a2a,1.4,0,0,.6,.3))});
+  part('det','Detector','Counts the diffracted X-ray photons at every angle.','Scintillation counter or fast silicon strip detector.',[2.6,.8,0],false,g=>{
+    A.pD=piv(g,th0);add(A.pD,box(.9,.6,.6,0x2f7f96,R+.4,0,0,.4,.4),box(.1,.45,.45,0xdddddd,R-.02,0,0,.6,.3))});
+  part('mon','Computer & diffractogram','Software records intensity versus 2θ and compares peaks with a database.',MON_INFO,[2.2,.8,1.8],false,g=>monitor(g,4.8,xrdS.tex,-.4,0));
+  const FX=newFX(),b1=bm(0xffa24a,.03),b2=bm(0xffa24a,.03),dt=dotsMk(FX,30,0xffd9a0,.1),O=V3(0,Y,0);FX.add(b1,b2);
+  function run(t){const p=(t*.1)%1,th=(10+50*p)*rad,c=Math.cos(th),s=Math.sin(th);
+    A.pT.rotation.z=-th;A.pO1.rotation.z=-th;A.pO2.rotation.z=th;A.pD.rotation.z=th;
+    const T=V3(-(R-.1)*c,Y+(R-.1)*s,0),D=V3((R-.1)*c,Y+(R-.1)*s,0);
+    sg(b1,T,O);sg(b2,O,D);b2.material.opacity=.2+.8*Math.min(1,Math.max(0,(xrdF(p)-.06)/.7));along(dt,[T,O,D],t,.7);xrdS.set(p)}
+  return {FX,run,show:()=>xrdS.set(1),steps:[
+    ['tube','X-ray tube','Electrons strike a copper target and produce X-rays (Cu Kα, λ = 0.154 nm).'],
+    ['optics','Slits and filter','Slits shape a narrow beam and a filter keeps one wavelength.'],
+    ['sample','Sample','Crystal planes diffract the X-rays only when Bragg’s law nλ = 2d sinθ is satisfied.'],
+    ['gonio','Goniometer','The tube and detector move together (θ–θ scan) so every angle is tested.'],
+    ['det','Detector','Counts photons at each angle; strong signal appears only at Bragg angles.'],
+    ['mon','Diffractogram','Peak positions identify the crystal phase; peak width gives crystallite size (Scherrer equation).']]}
+}
+
+/* =====================================================================
+   FTIR
+   ===================================================================== */
+function buildFTIR(){
+  const A={};
+  part('base','Bench & optical tray','Stable bench with a sealed tray that keeps all optics in fixed alignment.','The interferometer is purged with dry air or N₂ to remove water and CO₂ bands.',[0,-1,0],false,trayPart);
+  part('cover','Instrument cover','Lid that shields the optics from dust and moisture.','',[0,4,0],true,coverPart);
+  part('source','IR source (globar)','A silicon-carbide rod heated to about 1200 °C glows and emits broadband infrared light.','Covers the mid-IR, about 4000–400 cm⁻¹.',[-2.5,1.5,1.5],false,g=>{
+    add(g,box(.8,.6,.6,0x3a4450,-3.1,1.15,0,.4,.5));const r=cyl(.12,.12,.6,0xff7a2a,-2.6,1.15,0);r.rotation.z=Math.PI/2;g.add(r)});
+  part('mirror','Collimating mirror','Concave mirror that turns the diverging light into a parallel beam.','Gold- or aluminium-coated.',[-2,2.2,2],false,g=>{const m=cyl(.4,.4,.08,0xe6c35a,-2.1,1.15,0,.95,.15);m.rotation.z=Math.PI/2;g.add(m)});
+  part('bs','Beamsplitter','A coated KBr plate at 45° reflects half of the light and transmits half.','KBr for mid-IR; ZnSe or Ge coatings.',[0,2.4,-.6],false,g=>{const b=glass(box(.04,.8,.9,0x9fd3ff,-1,1.15,0,.2,.1),.55);b.rotation.y=Math.PI/4;g.add(b)});
+  part('fixed','Fixed mirror','Reflects one half of the beam back to the beamsplitter over a constant path.','',[0,.8,-2.5],false,g=>add(g,box(.7,.7,.08,0xdfe3e8,-1,1.15,-1.6,.95,.15),box(.3,.25,.2,0x555555,-1,.92,-1.7)));
+  part('moving','Moving mirror & rail','Slides back and forth. The changing path difference makes the interference pattern (interferogram).','Travel of a few millimetres, kept parallel to a fraction of the laser wavelength.',[2.4,1.4,-1.5],false,g=>{
+    const r=cyl(.06,.06,2.4,0x9aa5b1,1.5,.95,0,.8,.3);r.rotation.z=Math.PI/2;g.add(r);A.mm=new THREE.Group();A.mm.position.set(1.4,1.15,0);g.add(A.mm);
+    add(A.mm,box(.08,.7,.7,0xdfe3e8,0,0,0,.95,.15),box(.3,.2,.4,0x555555,.2,-.35,0),cyl(.16,.16,.5,0x884433,.6,0,0))});
+  part('laser','HeNe reference laser','A red laser follows the same path; its fringes tell the instrument exactly where the moving mirror is.','632.8 nm, used as an internal ruler for accurate wavenumbers.',[3,.8,-2],false,g=>{
+    const c=cyl(.2,.2,1.2,0x333333,-2.7,.95,-1.3,.4,.4);c.rotation.z=Math.PI/2;g.add(c);g.add(mesh(new THREE.SphereGeometry(.09,12,10),0xff2222,-2.05,.95,-1.3))});
+  part('atr','ATR sample accessory','Diamond ATR crystal: IR light reflects inside it and probes a thin layer of the sample pressed on top.','A drop or powder of nanoparticles is pressed onto the crystal by the clamp.',[-2.5,2,3],false,g=>{
+    add(g,box(1.4,.3,1.2,0x59636f,-1,1.0,1.1,.5,.4),glass(cyl(.3,.3,.1,0xaee6ff,-1,1.2,1.1,.3,.1),.8),cyl(.12,.12,.04,0x3ba55c,-1,1.27,1.1),cyl(.08,.08,.9,0x777777,-1.7,1.55,1.1,.7,.3),box(1.0,.12,.2,0x777777,-1.25,1.98,1.1,.7,.3),cyl(.1,.1,.6,0xbbbbbb,-1,1.65,1.1,.8,.3))});
+  part('det','DTGS detector','Pyroelectric detector that turns the infrared power into an electrical signal.','Deuterated triglycine sulfate works at room temperature; MCT detectors need liquid N₂.',[-.5,1.2,3.5],false,g=>add(g,box(.8,.55,.8,0x2f7f96,-1,1.1,1.95,.4,.4),cyl(.2,.2,.1,0xaaaaaa,-1,1.1,1.55)));
+  part('mon','Computer & spectrum','Software applies the Fourier transform and plots the IR spectrum.',MON_INFO,[2.4,.8,2],false,g=>monitor(g,5.2,ftirS.tex,-.5,0));
+  const FX=newFX(),bs=[0,1,2,3,4].map(()=>bm(0xff8a3d)),red=bm(0xff2020,.02,.7),dt=dotsMk(FX,26,0xffc58a,.1);FX.add(...bs,red);
+  const S0=V3(-2.55,1.15,0),O=V3(-1,1.15,0),FM=V3(-1,1.15,-1.55),AT=V3(-1,1.25,1.1),DT=V3(-1,1.15,1.6);
+  function run(t){const p=(t*.1)%1,mx=1.5+.3*Math.sin(t*3);A.mm.position.x=mx;const I=.55+.45*Math.cos(t*6.6);
+    sg(bs[0],S0,O);sg(bs[1],O,V3(mx-.05,1.15,0));sg(bs[2],O,FM);sg(bs[3],O,AT);sg(bs[4],AT,DT);bs[3].material.opacity=bs[4].material.opacity=.25+.7*I;
+    sg(red,V3(-2.05,.95,-1.3),V3(-1,1.15,0));along(dt,[S0,O,AT,DT],t,.7);ftirS.set(p)}
+  return {FX,run,show:()=>ftirS.set(1),steps:[
+    ['source','IR source','A heated ceramic rod emits broadband infrared light.'],
+    ['mirror','Collimating mirror','The mirror makes the beam parallel before it enters the interferometer.'],
+    ['bs','Beamsplitter','The beam is divided into two halves.'],
+    ['moving','Moving mirror','One half returns from a fixed mirror, the other from a moving mirror. Their path difference changes, so the recombined beam brightens and fades (interference).'],
+    ['atr','ATR crystal & sample','The recombined beam probes the sample; bonds absorb at their own vibration frequencies.'],
+    ['det','Detector','The detector records the interferogram (intensity versus mirror position).'],
+    ['mon','Fourier transform','A Fourier transform converts the interferogram into the spectrum, with dips at the absorbed wavenumbers.']]}
+}
+
+/* =====================================================================
+   UV-Vis
+   ===================================================================== */
+function buildUV(){
+  const A={},BY=1.3;
+  part('base','Bench & optical tray','Stable bench carrying the sealed optical bench.','',[0,-1,0],false,trayPart);
+  part('cover','Instrument cover','Light-tight lid so room light does not reach the detector.','',[0,4,0],true,coverPart);
+  part('lamp','Deuterium & tungsten lamps','Deuterium lamp covers the UV (190–360 nm); tungsten-halogen covers the visible and near-IR.','The instrument switches lamps automatically near 320–350 nm.',[-2.5,2.2,1.5],false,g=>{
+    add(g,box(1.0,.2,1.6,0x39434f,-3.0,.95,0,.4,.5),glass(cyl(.28,.28,.7,0x8ab4ff,-3.0,1.35,-.45,.2,.1),.6),glass(mesh(new THREE.SphereGeometry(.28,24,16),0xffd48a,-3.0,1.3,.45,.2,.1),.6))});
+  part('slits','Entrance & exit slits','Narrow slits control the width of the wavelength band that reaches the sample.','Narrow slit = better resolution but less light (bandwidth about 0.5–2 nm).',[0,2.4,2.5],false,g=>[-2.0,-.5].forEach(x=>add(g,box(.06,.26,.7,0x222222,x,BY+.27,0,.3,.5),box(.06,.26,.7,0x222222,x,BY-.27,0,.3,.5))));
+  part('grating','Diffraction grating (monochromator)','Splits white light into its colours; rotating it selects one wavelength at a time.','About 1200 grooves per mm.',[-1.3,1.6,-2.4],false,g=>{
+    A.grat=new THREE.Group();A.grat.position.set(-1.3,BY,0);g.add(A.grat);add(A.grat,box(.08,.8,.8,0x4a90b0,0,0,0,.9,.2));for(let i=0;i<9;i++)add(A.grat,box(.01,.8,.03,0xffffff,.05,0,-.35+i*.09,.9,.2))});
+  part('chopper','Beam splitter / chopper','A spinning mirrored wheel sends the beam alternately through the sample and the reference cuvette.','Spins at tens of revolutions per second.',[.3,2.4,-2],false,g=>{
+    A.chop=new THREE.Group();A.chop.position.set(.3,BY+.35,0);g.add(A.chop);
+    [0,Math.PI].forEach(s=>{const m=mesh(new THREE.CylinderGeometry(.5,.5,.04,24,1,false,s,Math.PI/2),0xcfd6de,0,0,0,.9,.2);m.rotation.z=Math.PI/2;A.chop.add(m)})});
+  part('cuv','Sample & reference cuvettes','Quartz cuvettes: one holds the nanoparticle dispersion, the other only the solvent.','Standard path length l = 1 cm; quartz is needed for UV.',[1.6,1.4,2.4],false,g=>{
+    add(g,box(1.4,.18,1.8,0x59636f,1.6,.95,0,.5,.4),glass(box(.45,.9,.45,0xbfe6f0,1.6,1.49,.45,.2,.1),.3),glass(box(.38,.6,.38,0xb0204a,1.6,1.36,.45,0,.2),.85),
+      glass(box(.45,.9,.45,0xbfe6f0,1.6,1.49,-.45,.2,.1),.3),glass(box(.38,.6,.38,0xcfeaf2,1.6,1.36,-.45,0,.2),.5))});
+  part('det','Detectors (PMT / photodiode)','Measure the light that passes through the sample and the reference.','Ratio of the two signals gives transmittance; A = −log₁₀T.',[2.8,.8,0],false,g=>{
+    [.45,-.45].forEach(z=>{const d=cyl(.22,.22,.7,0x2f7f96,3.0,BY,z,.4,.4);d.rotation.z=Math.PI/2;g.add(d)})});
+  part('mon','Computer & spectrum','Software plots absorbance versus wavelength and finds peak positions.',MON_INFO,[2.4,.8,2],false,g=>monitor(g,5.2,uvS.tex,-.5,0));
+  const FX=newFX(),b=[0,1,2,3,4,5].map(()=>bm(0xfff0c0,.03)),dt=dotsMk(FX,26,0xffffff,.09),col=new THREE.Color();FX.add(...b);
+  const L=V3(-2.5,BY,0),G1=V3(-1.3,BY,0),C=V3(.3,BY,0),Si=V3(1.2,BY,.45),Ri=V3(1.2,BY,-.45),So=V3(2.75,BY,.45),Ro=V3(2.75,BY,-.45);
+  function run(t){const p=(t*.08)%1,lam=200+600*p,hue=lam<400?.75:lam>700?0:(700-lam)/300*.75;col.setHSL(hue,lam<380||lam>720?.5:1,lam<380?.35:.55);
+    A.grat.rotation.y=-.6+p;A.chop.rotation.x=t*10;
+    sg(b[0],L,G1);sg(b[1],G1,C);sg(b[2],C,Si);sg(b[3],C,Ri);sg(b[4],Si,So);sg(b[5],Ri,Ro);
+    for(let i=1;i<6;i++)b[i].material.color.copy(col);const on=Math.sin(t*10)>0;b[2].material.opacity=on?.9:.25;b[3].material.opacity=on?.25:.9;
+    b[4].material.opacity=.1+.8*Math.pow(10,-uvF(p)*1.4);b[5].material.opacity=.9;along(dt,[L,G1,C,Si,So],t,.6);uvS.set(p)}
+  return {FX,run,show:()=>uvS.set(1),steps:[
+    ['lamp','Lamps','Deuterium (UV) and tungsten (visible) lamps give light across 200–800 nm.'],
+    ['slits','Slits','Slits cut the light into a narrow band.'],
+    ['grating','Monochromator','The grating spreads the light into colours; rotating it selects one wavelength at a time (watch the beam colour change).'],
+    ['chopper','Beam splitter','The wheel sends the beam alternately to the sample and the reference.'],
+    ['cuv','Cuvettes','Nanoparticles absorb or scatter some wavelengths, so the beam after the sample cuvette gets weaker.'],
+    ['det','Detectors','Compare the light after sample and reference to get the absorbance.'],
+    ['mon','Spectrum','Absorbance versus wavelength: gold nanoparticles show a surface plasmon peak near 520 nm (Beer–Lambert law A = ε·c·l).']]}
+}
+
+/* =====================================================================
+   Registry
+   ===================================================================== */
+const SEMSTEPS=[['gun','Electron gun','Electrons are emitted from a heated filament or field-emission tip and accelerated down the column.'],
+['cond','Condenser lens','The lens shrinks the beam and sets the spot size and current.'],
+['coils','Scan coils','Magnetic fields sweep the beam line by line across the sample (raster).'],
+['obj','Objective lens','The final lens focuses the beam to a spot a few nanometres wide.'],
+['se','Detectors','Secondary electrons (yellow) and backscattered electrons (red) are collected; their signal brightens one screen pixel at a time.']];
+const REG={
+ sem:{n:'SEM',full:'Scanning Electron Microscope',build:buildSEM,x:-1.5,def:[.5,3.4,0],cam:[10,6.5,12],about:[
+  ['Principle','A focused electron beam scans the surface. Secondary and backscattered electrons leaving the sample form the image.'],
+  ['What it tells you','Surface morphology, particle size and shape, agglomeration. With an EDS detector it also gives elemental composition.'],
+  ['For nanoparticles','Size distribution and shape of particles on a substrate (practical limit about 5–10 nm).'],
+  ['Limits','Sample must be dry, vacuum-stable and conductive (or coated). Gives no height information.']]},
+ afm:{n:'AFM',full:'Atomic Force Microscope',build:buildAFM,x:0,def:[0,2.5,0],cam:[8,5.5,10],about:[
+  ['Principle','A sharp tip on a flexible cantilever feels forces from the surface. A laser reflected from the cantilever records its bending while the sample is scanned.'],
+  ['What it tells you','3D topography, true height, roughness and mechanical properties, in air or even in liquid.'],
+  ['For nanoparticles','Particle height (diameter) on mica or silicon, thickness of nanosheets, aggregation on a surface.'],
+  ['Limits','Slow scanning; tip shape broadens lateral size; small scan area.']]},
+ tem:{n:'TEM',full:'Transmission Electron Microscope',build:buildTEM,x:0,def:[1,4,0],cam:[11,6.5,10],about:[
+  ['Principle','High-energy electrons (80–300 kV) pass through an ultra-thin sample. Electromagnetic lenses magnify the transmitted beam.'],
+  ['What it tells you','Size and shape down to atomic resolution, lattice fringes, crystal structure from electron diffraction, core–shell structure.'],
+  ['For nanoparticles','The reference method for size distribution; HRTEM measures lattice spacing of single particles.'],
+  ['Limits','Needs a thin sample on a grid, expensive instrument, only tiny regions are viewed.']]},
+ xrd:{n:'XRD',full:'X-ray Diffractometer',build:buildXRD,x:0,def:[0,2.2,0],cam:[8,5.5,10],about:[
+  ['Principle','X-rays are diffracted by crystal planes at angles given by Bragg’s law, nλ = 2d sinθ.'],
+  ['What it tells you','Crystal phase, lattice parameters, crystallinity and average crystallite size from peak width (Scherrer equation D = Kλ / β cosθ).'],
+  ['For nanoparticles','Confirms the phase (e.g. fcc gold, wurtzite ZnO); broad peaks signal very small crystallites.'],
+  ['Limits','Gives an average over the whole powder; amorphous material gives only broad humps.']]},
+ ftir:{n:'FTIR',full:'Fourier-Transform Infrared Spectrometer',build:buildFTIR,x:0,def:[1,1.6,0],cam:[8,6,10],about:[
+  ['Principle','Infrared light is absorbed at frequencies that match molecular bond vibrations. An interferometer plus a Fourier transform gives the whole spectrum in seconds.'],
+  ['What it tells you','Functional groups, capping agents, ligands and surface chemistry.'],
+  ['For nanoparticles','Shows which molecules (citrate, PVP, plant-extract biomolecules) coat the particles: O–H, C=O and C–N bands.'],
+  ['Limits','Gives chemistry, not size. Water absorbs strongly.']]},
+ uv:{n:'UV-Vis',full:'UV-Visible Spectrophotometer',build:buildUV,x:0,def:[1,1.6,0],cam:[8,6,10],about:[
+  ['Principle','Samples absorb or scatter light at characteristic wavelengths; absorbance follows the Beer–Lambert law, A = ε·c·l.'],
+  ['What it tells you','Formation and stability of nanoparticles from the surface plasmon resonance (SPR) peak; band gap of semiconductors (Tauc plot); concentration.'],
+  ['For nanoparticles','Gold ≈ 520 nm, silver ≈ 400–420 nm. A red-shifted or broadened peak suggests larger or aggregated particles.'],
+  ['Limits','Only indirect size information; overlapping bands in mixtures.']]}
+};
+
+/* =====================================================================
+   UI
+   ===================================================================== */
+let cur,curId,tab='real',sel=null,e=0,eT=0,slider=1,spin=true,focus=0,stepI=0,playing=true,clock=0;
+const side=document.getElementById('side'),chips=document.getElementById('chips'),byId=id=>P.find(p=>p.id===id);
+Object.keys(REG).forEach(id=>{const b=document.createElement('button');b.className='chip';b.textContent=REG[id].n;b.title=REG[id].full;
+  b.onclick=()=>{location.hash=id};chips.appendChild(b);REG[id].btn=b});
+
+function load(id){
+  if(inst){scene.remove(inst);P.forEach(p=>p.lb.remove())}
+  const RG=REG[id];curId=id;inst=new THREE.Group();inst.position.x=RG.x;scene.add(inst);P=[];cur=RG.build();
+  inst.updateMatrixWorld(true);
+  P.forEach(p=>{p.c=new THREE.Box3().setFromObject(p.g).getCenter(new THREE.Vector3());p.lb=document.createElement('div');p.lb.className='lb';p.lb.textContent=p.n+'. '+p.name.split(' (')[0];wrap.appendChild(p.lb)});
+  tab='real';sel=null;e=eT=0;stepI=0;clock=0;cur.FX.visible=false;cur.show();
+  DEF.set(...RG.def);ctl.target.copy(DEF);camera.position.set(...RG.cam);
+  Object.keys(REG).forEach(k=>{REG[k].btn.classList.toggle('on',k===id);REG[k].btn.setAttribute('aria-pressed',k===id)});
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t==='real'));
+  document.title=RG.full+' – Instrument Viewer';render();
+}
+function render(){
+  let h='';
+  if(tab==='real')h='<h2>'+REG[curId].full+'</h2>'+REG[curId].about.map(a=>'<div class="card"><b>'+a[0]+'</b><br><span style="color:var(--dim)">'+a[1]+'</span></div>').join('')+
+    '<p style="margin:12px 0 8px">Drag to rotate, scroll or pinch to zoom, click any part to learn about it.</p><button class="btn" id="spin">'+(spin?'Pause rotation':'Auto-rotate')+'</button>';
+  if(tab==='expl')h='<h2>Exploded view</h2><p>Drag the slider to separate the parts. Labels appear as they spread out.</p><input type="range" id="sl" min="0" max="1" step=".01" value="'+slider+'" aria-label="Explosion amount"><div class="card">Open the “Parts list” tab to focus on a single component.</div>';
+  if(tab==='anim')h='<h2>How it works</h2><p>Covers are made see-through so you can follow the beam. Click a step to jump to it.</p><button class="btn" id="pp">'+(playing?'Pause':'Play')+'</button><ol class="steps" id="st">'+
+    cur.steps.map((s,i)=>'<li data-i="'+i+'" class="'+(i===stepI?'on':'')+'"><b>'+s[1]+'.</b> '+(i===stepI?s[2]:'')+'</li>').join('')+'</ol>';
+  if(tab==='parts'){const p=sel&&byId(sel);
+    h='<h2>Parts list</h2><p>Click a part to see it in the exploded view.</p><ul class="pl">'+P.slice().reverse().map(q=>'<li><button data-id="'+q.id+'" class="'+(q.id===sel?'on':'')+'">'+q.n+'. '+q.name+'</button></li>').join('')+'</ul>'+
+    (p?'<div class="card"><b>'+p.name+'</b><p style="margin:6px 0">'+p.func+'</p><span style="color:var(--dim);font-size:13px">'+p.spec+'</span></div>':'')}
+  side.innerHTML=h;const $=i=>document.getElementById(i);
+  if($('spin'))$('spin').onclick=()=>{spin=!spin;render()};
+  if($('sl'))$('sl').oninput=ev=>{slider=+ev.target.value;eT=slider};
+  if($('pp'))$('pp').onclick=()=>{playing=!playing;render()};
+  side.querySelectorAll('.pl button').forEach(b=>b.onclick=()=>select(b.dataset.id));
+  side.querySelectorAll('#st li').forEach(l=>l.onclick=()=>{stepI=+l.dataset.i;clock=0;render()});
+}
+function setTab(t){tab=t;document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  if(t!=='parts')sel=null;eT=t==='expl'?slider:t==='parts'?1:0;cur.FX.visible=t==='anim';if(t!=='anim')cur.show();focus=40;render()}
+function select(id){sel=id;if(tab!=='parts'){tab='parts';document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t==='parts'));cur.FX.visible=false;cur.show()}eT=1;focus=90;render()}
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>setTab(b.dataset.t));
+
+const ray=new THREE.Raycaster(),mp=new THREE.Vector2();let down=null;
+renderer.domElement.addEventListener('pointerdown',ev=>down=[ev.clientX,ev.clientY]);
+renderer.domElement.addEventListener('pointerup',ev=>{if(!down||Math.hypot(ev.clientX-down[0],ev.clientY-down[1])>5)return;
+  const r=renderer.domElement.getBoundingClientRect();mp.set((ev.clientX-r.left)/r.width*2-1,-(ev.clientY-r.top)/r.height*2+1);
+  ray.setFromCamera(mp,camera);const h=ray.intersectObjects(P.map(p=>p.g),true).find(x=>x.object.userData.pid&&x.object.material.opacity>.5);if(h)select(h.object.userData.pid)});
+function resize(){const w=wrap.clientWidth,h=wrap.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();
+
+const V=new THREE.Vector3(),DEF=new THREE.Vector3();let last=performance.now();
+function tick(now){requestAnimationFrame(tick);if(!cur)return;const dt=Math.min((now-last)/1000,.1);last=now;
+  e+=(eT-e)*.08;const hlId=tab==='anim'?cur.steps[stepI][0]:sel;
+  P.forEach(p=>{p.g.position.copy(p.ex).multiplyScalar(e);
+    const base=(tab==='anim'&&p.cut)?0.2:(sel&&sel!==p.id?0.15:1),hl=p.id===hlId&&(tab==='anim'||tab==='parts');
+    p.mats.forEach(m=>{m.opacity+=(base*(m.userData.op||1)-m.opacity)*.15;m.depthWrite=m.opacity>.9;if(m.emissive)m.emissive.setHex(hl?0x0b7f86:0)});
+    p.lb.style.opacity=(e>.45&&(tab!=='parts'||!sel||sel===p.id))?1:0;
+    V.copy(p.c).addScaledVector(p.ex,e).project(camera);p.lb.style.left=((V.x*.5+.5)*wrap.clientWidth)+'px';p.lb.style.top=((-V.y*.5+.5)*wrap.clientHeight)+'px'});
+  if(tab==='anim'&&playing){clock+=dt;cur.run(now/1000);if(clock>3.4){clock=0;stepI=(stepI+1)%cur.steps.length;render()}}
+  if(focus>0){focus--;const tg=sel?byId(sel):null,want=tg?V.copy(tg.c).addScaledVector(tg.ex,e):DEF;ctl.target.lerp(want,.08);
+    if(tg){const d=camera.position.clone().sub(ctl.target);camera.position.copy(ctl.target).addScaledVector(d.normalize(),THREE.MathUtils.lerp(d.length(),9,.06))}}
+  ctl.autoRotate=spin&&tab==='real'&&!sel;ctl.update();renderer.render(scene,camera)}
+function fromHash(){const h=location.hash.slice(1);load(REG[h]?h:'sem')}
+addEventListener('hashchange',fromHash);fromHash();requestAnimationFrame(tick);
+
+</script>
+</body>
+</html>
